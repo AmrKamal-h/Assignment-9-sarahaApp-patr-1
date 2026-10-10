@@ -2,18 +2,20 @@ import jwt from "jsonwebtoken";
 import { userModel } from "../DB/models/user.model.js";
 import { errorRes } from "../Utils/error.handel.js";
 
+// Token Enum
 export const tokenEnum = {
     access: "access",
     refresh:"refresh"
 }
 
-
+// Authntcation Fn
 export const auth = async (req , res , next)=>{
         const {user} = await decodeToken({authorization: req.headers.authorization})
         req.user = user
         next()
 }
 
+// Decode Fn
 export const decodeToken = async ({authorization, tokenType = tokenEnum.access})=>{
             if(!authorization  || !authorization.startsWith("Bearer ")){
             errorRes({msg:"in-valid token",
@@ -42,4 +44,19 @@ export const decodeToken = async ({authorization, tokenType = tokenEnum.access})
                 //     })
                 // }
                 return  { user, payload };
+}
+
+
+// Authorization Fn: this function is from Part 2 of the assignment
+export const authorization = (...roles)=>{
+    console.log(roles);
+    return async(req,res,next)=>{
+        if(!roles.includes(req.user.role)){
+            errorRes({
+                msg:"un Authorized",
+                statusCode:401
+            })
+        }
+        next()
+    }
 }

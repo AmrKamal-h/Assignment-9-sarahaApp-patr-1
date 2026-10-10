@@ -1,5 +1,6 @@
 import { userModel } from "../../DB/models/user.model.js"
 import { decodeToken, tokenEnum } from "../../Middlewares/auth.middleware.js"
+import { comparHash, createHash } from "../../security/hash.js"
 import { errorRes } from "../../Utils/error.handel.js"
 import jwt from "jsonwebtoken"
 
@@ -20,7 +21,7 @@ export const signupService =async ({fullName,email,password, gender,age,phone , 
     }
     
     const user = await userModel.create({
-        fullName,email,password, gender,age,phone , bio,userName
+        fullName,email,password:await createHash(password), gender,age,phone , bio,userName
     })
     return{
         data:{
@@ -42,13 +43,14 @@ export const loginService = async (identifier, password)=>{
     })
     if(!user){
         errorRes({
-            msg:"invalid credintials",
+            msg:"invalid credentials",
             statusCode:400
         })
     }
-     if(password != password){
+    const isPasswordMatch = await comparHash(password, user.password)
+     if(! isPasswordMatch){ 
             errorRes({
-                msg:"invalid credintials",
+                msg:"invalid credentials",
                 statusCode:400
             })
         }
@@ -77,7 +79,7 @@ export const loginService = async (identifier, password)=>{
 }
 
 
-
+// Refresh Token FN
 export const refreshToken = async(authorization)=>{
      const {user} = await decodeToken({authorization ,tokenType: tokenEnum.refresh})
      const accessToken = jwt.sign({
@@ -93,3 +95,4 @@ export const refreshToken = async(authorization)=>{
         }
      }
 }
+

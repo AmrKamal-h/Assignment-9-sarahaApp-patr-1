@@ -1,9 +1,12 @@
 // user controller
 import { Router } from "express";
 import { successRes } from "../../Utils/success.res.js";
-import { errorRes } from "../../Utils/error.handel.js";
 import { loginService, refreshToken, signupService } from "./user.services.js";
-import { auth, decodeToken, tokenEnum } from "../../Middlewares/auth.middleware.js";
+import { auth, authorization } from "../../Middlewares/auth.middleware.js";
+import { RoleEnum } from "./user.types.js";
+import { signupSchema } from "./user.validation.js";
+import { errorRes } from "../../Utils/error.handel.js";
+import { validation } from "../../Middlewares/validation.middleware.js";
 
 const router = Router()
 
@@ -16,9 +19,8 @@ export const routes ={
 }
 
     // Signup Api
-    router.post(routes.signup,async (req,res)=>{
+    router.post(routes.signup,validation(signupSchema),async (req,res)=>{
         const {data} = await signupService(req.body)
-
         return successRes({
             res,
             status:201,
@@ -34,7 +36,7 @@ export const routes ={
     })
 
     // Profile Api
-    router.get(routes.me, auth ,async (req,res)=>{
+    router.get(routes.me, auth, authorization(RoleEnum.user) ,async (req,res)=>{
 
         const user = req.user
         successRes({
