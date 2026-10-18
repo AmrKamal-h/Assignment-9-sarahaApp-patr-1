@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 import { errorRes } from "../Utils/error.handel.js"
 
-const secretKey =  Buffer.from("mjnhbgvfctghjkmnbfdertyuhgvbfgbh")
+const secretKey =  Buffer.from(process.env.ENCRYPTION_KEY)
 export const encryption = (data)=>{
     const iv = crypto.randomBytes(16)
     const cipher = crypto.createCipheriv("aes-256-cbc",secretKey,iv)

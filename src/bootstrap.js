@@ -3,16 +3,22 @@ import chalk from "chalk"
 import userRouter, { routes as userRouts } from "./Modules/user/user.controller.js"
 import { DBConnection } from "./DB/db.connection.js"
 import { userModel } from "./DB/models/user.model.js"
-import { GenderEnum } from "./Modules/user/user.types.js"
-
+import cors from "cors"
+import { sendEmail } from "./Utils/email/sendEmail.js"
+import { emailTemplate } from "./Utils/email/emailTemplate.js"
 
 const bootstrap = async ()=>{
     const app = express()
     const port = 3000
 
     await DBConnection()
+    app.use(cors({
+        origin: "*"
+    }
+    ))
     app.use(express.json())
     app.use(userRouts.base,userRouter)
+    app.use("/uploads",express.static("./uploads"))
     
 
     app.get("/u",async (req,res)=>{
@@ -30,21 +36,11 @@ const bootstrap = async ()=>{
     })
 
 
-    // const user = await userModel.create({
-    //     fullName:"Amr Kamal",
-    //     userName: "amr11_ahmed",
-    //     email: "amr12@example.com",
-    //     password: "hashedPassword", // hash it first (e.g. bcrypt.hash)
-    //     phone: "01012345678",
-    //     age: 22,
-    //     gender: GenderEnum.male, // use your enum instead of a raw number
-    //     });
-
 
 
     app.use((err,req,res,next)=>{
         const statusCode = err.cause?.statusCode || 500
-
+        console.log(err.stack)
         res.status(statusCode).json({
             errMsg: err.message,
             status: statusCode,

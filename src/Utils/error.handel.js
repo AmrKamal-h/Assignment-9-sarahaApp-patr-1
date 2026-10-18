@@ -1,4 +1,3 @@
-import { undefined } from "zod"
 
 
 export const errorRes = ({msg = "Error Message", statusCode = 500 , options }) =>{

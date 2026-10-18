@@ -8,7 +8,7 @@ export const tokenEnum = {
     refresh:"refresh"
 }
 
-// Authntcation Fn
+// Authentication Fn
 export const auth = async (req , res , next)=>{
         const {user} = await decodeToken({authorization: req.headers.authorization})
         req.user = user
@@ -37,19 +37,18 @@ export const decodeToken = async ({authorization, tokenType = tokenEnum.access})
                 statusCode:404
             })
         }
-        // if (!user.confirmedAt) {
-            //     errorRes({
-                //         msg:"confirm first",
-                //         statusCode:401
-                //     })
-                // }
+        if (!user.confirmedAt) {
+                errorRes({
+                        msg:"confirm first",
+                        statusCode:401
+                    })
+                }
                 return  { user, payload };
 }
 
 
 // Authorization Fn: this function is from Part 2 of the assignment
 export const authorization = (...roles)=>{
-    console.log(roles);
     return async(req,res,next)=>{
         if(!roles.includes(req.user.role)){
             errorRes({
