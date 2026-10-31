@@ -1,6 +1,8 @@
 import jwt from "jsonwebtoken"; 
 import { userModel } from "../DB/models/user.model.js";
 import { errorRes } from "../Utils/error.handel.js";
+import { redisClient } from "../DB/redis.connection.js";
+import { userSessionJwtIdKey } from "../Utils/redis-sevices.js";
 
 // Token Enum
 export const tokenEnum = {
@@ -43,7 +45,23 @@ export const decodeToken = async ({authorization, tokenType = tokenEnum.access})
                         statusCode:401
                     })
                 }
-                return  { user, payload };
+
+                const {jti} = payload
+                if(!jti){
+                    errorRes({
+                        msg:"invalid token",
+                        statusCode:400
+                    })
+                }
+
+                const redisJti = await redisClient.get(userSessionJwtIdKey(user._id, jti))
+                if(!redisJti){
+                    errorRes({
+                        msg:"logged out please login again",
+                        statusCode:400
+                    })
+                }
+                return  { user,jti };
 }
 
 

@@ -72,7 +72,7 @@ const userSchema = new Schema ({
         type: Date
     },
     blockedAt: Date,
-     otp: otpSchema
+    //  otp: otpSchema
 },{
     timestamps: true,
     strict: true,

@@ -1,4 +1,4 @@
-import { userModel } from "../../DB/models/user.model.js"
+ import { userModel } from "../../DB/models/user.model.js"
 import { decodeToken, tokenEnum } from "../../Middlewares/auth.middleware.js"
 import { comparHash, createHash } from "../../security/hash.js"
 import { errorRes } from "../../Utils/error.handel.js"
@@ -9,6 +9,16 @@ import { successRes } from "../../Utils/success.res.js"
 import { random } from "../../Utils/email/createOtp.js"
 import { sendEmail } from "../../Utils/email/sendEmail.js"
 import { emailTemplate } from "../../Utils/email/emailTemplate.js"
+import { redisClient } from "../../DB/redis.connection.js"
+import { attemptsBlockCountKey, attemptsBlockKey, attemptsKey, confirmEmailKey, resendOtpKey, userPrefix, userSessionJwtIdKey, userSessionJwtIdPrefixKey } from "../../Utils/redis-sevices.js"
+import { nanoid } from "nanoid"
+
+const calcBlockSecs = (count)=>{
+    const Block_Mins_Arr = [5, 15, 60, 1440]
+    const index = Math.min(count, Block_Mins_Arr.length)
+    return Block_Mins_Arr[index-1]* 60 
+}
+
 
 const googleClient = new OAuth2Client();
 
@@ -23,13 +33,10 @@ export const signupService =async ({fullName,email,password, gender,age,phone , 
     
     if(isExist){
         return errorRes({
-            msg:`${isExist.email == email ? "email": "username"} alredy exist`,
+            msg:`${isExist.email == email ? "email": "username"} already exist`,
             statusCode:400
         })
     } 
-    const otp = random()
-  
-    
     const user = await userModel.create({
         fullName,
         email,
@@ -39,19 +46,37 @@ export const signupService =async ({fullName,email,password, gender,age,phone , 
         phone ,
         bio,
         userName,
-        otp:{
-            code: await createHash(otp),                 
-            expireIn: Date.now() + 5 * 60 * 1000
-        }
+   
     })
-      await sendEmail ({
+
+
+    const otp = random()
+             sendEmail ({
         to: email,
         subject :"Confirm Email",
         html : emailTemplate({
             otp,
             subject : "Confirm Email"
         })
-    })
+           })
+       
+      const redisKey = confirmEmailKey(user._id)     
+           await redisClient.set(redisKey, await createHash(otp),{
+                        expiration: {
+                type: "EX",
+                value: 5 * 60
+            }
+           })
+
+           await redisClient.set(resendOtpKey(user.id),0,{
+            expiration:{
+                type: "EX",
+                value: 60
+            }
+           })
+           await redisClient.incr(attemptsKey(user._id))
+
+ 
     return{
         data:{
             user
@@ -89,20 +114,30 @@ export const loginService = async (identifier, password) => {
         })
     }
 
+    const jwtid = nanoid()
+
     const accessToken = jwt.sign({
         _id: user._id,
         email: user.email
     }, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "30Min"
+        expiresIn: "30Min",
+        jwtid
     })
 
     const refreshToken = jwt.sign({
         _id: user._id,
         email: user.email
     }, process.env.REFRESH_TOKEN_SECRET, {
-        expiresIn: "7d"
+        expiresIn: "7d",
+        jwtid
     })
 
+        await redisClient.set(userSessionJwtIdKey(user._id, jwtid), jwtid,{
+            expiration:{
+                type:"EX",
+                value: 7 * 24 * 60 * 60
+            }
+        })
     return {
         data: {
             accessToken,
@@ -113,12 +148,13 @@ export const loginService = async (identifier, password) => {
 
 // Refresh Token FN
 export const refreshToken = async(authorization)=>{
-     const {user} = await decodeToken({authorization ,tokenType: tokenEnum.refresh})
+     const {user , jti} = await decodeToken({authorization ,tokenType: tokenEnum.refresh})
      const accessToken = jwt.sign({
         _id: user._id,
         email: user.email
      },process.env.ACCESS_TOKEN_SECRET,{
-        expiresIn:"30s"
+        expiresIn:"30s",
+        jwtid:jti
      })
 
      return {
@@ -176,6 +212,65 @@ export const googleLogin = async (token) => {
 };
 
 
+// Resent Confirm Email Otp
+export const resentConfirmEmailOtp = async (email)=>{
+    const user = await userModel.findOne({email,confirmedAt:{
+        $exists: false
+    }})
+if(!user){
+        errorRes({
+        msg:"user not found",
+        statusCode:404
+    })
+}
+
+const userId = user._id
+const cannotResend = (await redisClient.get(resendOtpKey(userId)) || 
+await redisClient.get(attemptsBlockKey(userId)))
+if(cannotResend){
+    errorRes({
+        msg:"estana shwia",
+        statusCode:400
+    })
+}
+const attempts = await redisClient.incr(attemptsKey(user._id))
+    if(attempts >= 5){
+        const blockCount = await redisClient.incr(attemptsBlockCountKey(user._id))
+        await redisClient.set(attemptsBlockKey(user._id),0,{
+            expiration:{
+                type:"EX",
+                value:calcBlockSecs(blockCount)
+            }
+        })
+       await redisClient.set(attemptsKey(user._id),0)
+    } else{
+            await redisClient.set(resendOtpKey(user._id),0,{
+        expiration:{
+            type:"EX",
+            value:60
+        }
+    })
+    }
+    const otp = random(6)
+    sendEmail({
+        to:email,
+        subject:"confirm Email",
+        html: emailTemplate({otp, subject: "Confirm Email"})
+    })
+    const redisKey =confirmEmailKey(user._id)
+    await redisClient.set(redisKey, await createHash(otp),
+{
+    expiration:{
+        type:"EX",
+        value: 60 * 5
+    }
+})
+
+    return {}
+    data:{}
+}
+
+
 //  Confirm Email Service 
 export const confirmEmail =async ({email, otp})=>{
     const user = await userModel.findOne({
@@ -190,10 +285,55 @@ export const confirmEmail =async ({email, otp})=>{
             statusCode: 404
         })
     }
-    await checkOtp(user ,otp)
-     user.confirmedAt = new Date() 
-    user.otp = undefined 
-    await user.save()
+
+
+
+
+    const hashedOtp = await redisClient.get(confirmEmailKey(user._id))
+    if(!otp){
+        errorRes({
+            msg:"invalid or expire otp",
+            statusCode:404
+        })
+    }
+
+    const isBlocked = await redisClient.get(attemptsBlockKey(user._id)) 
+    if(isBlocked){
+        const blockedTTL = await redisClient.ttl(attemptsBlockKey(user._id))
+        errorRes({
+            msg:`try again after ${Math.round(blockedTTL/ 60)}M`,
+            statusCode:400
+        })
+    }
+
+    const isOtpCorrect = await comparHash(otp, hashedOtp)
+    if(!isOtpCorrect){
+       const attempts = await redisClient.incr(attemptsKey(user._id))
+       if(attempts >= 5){
+         const blockCount = await redisClient.incr(attemptsBlockCountKey(user._id))
+         await redisClient.set(attemptsBlockKey(user._id),0,{
+            expiration:{
+                type:"EX",
+                value:calcBlockSecs(blockCount)
+            }
+         })
+         await redisClient.set(attemptsKey(user._id),0)
+         errorRes({
+            msg:`try again after ${Math.round(blockCount/ 60)}M`,
+            statusCode:400
+         })
+       }
+    }else{
+        user.confirmedAt = new Date() 
+        await user.save()
+        const userKeys = await redisClient.KEYS(userPrefix(user._id) + "*")
+        await redisClient.del(userKeys)
+    }
+
+
+
+
+
     return {
         data:{
 
@@ -266,5 +406,42 @@ export const checkOtp = async ( user , otp)=>{
             msg:"in-valid OTP",
             statusCode: 400
         })
+    }
+}
+
+
+// Logout From One Device FN
+export const logout = async (userId , jti)=>{
+    const user = await userModel.findById(userId)
+    if(!user){
+        errorRes({
+            msg:"user not found",
+            statusCode:409
+        }) }
+    const deleteCount = await redisClient.del(userSessionJwtIdKey(userId, jti))
+    if(deleteCount){
+        errorRes({
+            msg: "already logged out",
+            statusCode: 400
+        })}
+    return {
+        data:{} }}
+
+// Logout From All Devices Fn 
+export const logoutFromAllDevices = async (userId)=>{
+    const user = await userModel.findById(userId)
+    if(!user){
+        errorRes({
+            msg:"user not found",
+            statusCode:404
+        })
+    }
+    const deleteCount = await redisClient.del(userSessionJwtIdPrefixKey(userId))
+    if(deleteCount){
+        errorRes({
+            msg: "already logged out",
+     }) }
+    return {
+        data:{}
     }
 }

@@ -1,7 +1,7 @@
 // user controller
 import { Router } from "express";
 import { successRes } from "../../Utils/success.res.js";
-import { confirmEmail, forgetPasswordSendOtp, googleLogin, loginService, refreshToken, resetPassword, signupService } from "./user.services.js";
+import { confirmEmail, forgetPasswordSendOtp, googleLogin, loginService, logout, logoutFromAllDevices, refreshToken, resentConfirmEmailOtp, resetPassword, signupService } from "./user.services.js";
 import { auth, authorization } from "../../Middlewares/auth.middleware.js";
 import { RoleEnum } from "./user.types.js";
 import { resetPasswordSchema, signupSchema } from "./user.validation.js";
@@ -14,15 +14,18 @@ const router = Router()
 
 export const routes ={
     base:"/users",
-    signup: "/signup",                 //POST
-    login:"/login",                    //POST  
-    me: "/me",                         //GET
-    refreshToken:"/refresh-token",     //POST    
-    googleSignup: "/signup/gmail",     //POST
-    confirmEmail:"/confirm-email",     //PATCh
-    forgetPassword:"/forget-password", //PATCH
-    resetPassword:"/reset-password",   //PATCH
-    uploadFile: "/upload-file",        //POST
+    signup: "/signup",                                 //POST
+    login:"/login",                                    //POST  
+    me: "/me",                                         //GET
+    refreshToken:"/refresh-token",                     //POST    
+    googleSignup: "/signup/gmail",                     //POST
+    confirmEmail:"/confirm-email",                     //PATCh
+    forgetPassword:"/forget-password",                 //PATCH
+    resetPassword:"/reset-password",                   //PATCH
+    uploadFile: "/upload-file",                        //POST
+    resentConfirmEmailOtp:"/resend-confirm-email-otp", //Post
+    logoutFromAllDevices:"/logout-from-all-devices",  //Post
+    logoutFromOneDevice:"/logout-from-one-device",  //Post
 }
 
     // Signup Api
@@ -104,18 +107,51 @@ export const routes ={
         })
     })
 
-    // Upload File 
-    router.get(routes.uploadFile, auth , uploadFile("user").single("image"), async (req,res)=>{
-
-        req.user.profileImage = req.file.path
-        await user.save()
-        successRes({
+    
+// Upload File
+router.patch(
+    routes.uploadFile,
+    auth, 
+    uploadFile("user").single("image"),
+    async (req, res) => {
+        return successRes({
             res,
-            data: { file: req.file }
+            data: { file: req.file } 
         })
     }
 )
 
+// Resend Confirm Otp
+router.post(routes.resentConfirmEmailOtp,async(req,res)=>{
+    const {email} = req.body
+    const {data} = await resentConfirmEmailOtp(email)
 
 
-export default router
+
+    successRes({
+        res, data
+    })
+})
+
+
+//  Logout From All Devices
+router.post(routes.logoutFromAllDevices, auth ,async (req,res)=>{
+    const userId = req.user._id
+    await logoutFromAllDevices(userId)
+    return successRes({
+        res
+    })
+})
+
+
+//  Logout From One Devices
+router.post(routes.logoutFromOneDevice, auth ,async (req,res)=>{
+    const userId = req.user._id
+    const jti = req.jti
+    await logout(userId,jti)
+    return successRes({
+        res
+    })
+})
+
+export default router 
